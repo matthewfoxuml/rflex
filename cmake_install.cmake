@@ -1,3 +1,6 @@
+#NEEDS TO BE REGENERATED UPON REBUILDING
+
+
 # Install script for directory: /home/user/fuerte_workspace/sandbox/rflex
 
 # Set the install prefix

@@ -1,3 +1,6 @@
+//ROS 2 COMMENTED OUT BELOW
+//DONE
+
 /*
  *  Motor Controller using keyboard inputs
  *  Keval Patel - September 26, 2013
@@ -23,7 +26,7 @@
  *
  */
 
-
+/*
 #include "ros/ros.h"
 #include "std_msgs/String.h"
 #include "geometry_msgs/Twist.h"
@@ -42,6 +45,8 @@ using namespace std;
  *  A = LEFT
  *  D = RIGHT
  */
+
+ /*
 #define MOVE_FORWARD 			keyboardInput == 'w'
 #define MOVE_BACKWARD 			keyboardInput == 's'
 #define TURN_LEFT			keyboardInput == 'a'
@@ -57,7 +62,7 @@ int main(int argc, char **argv)
    * The first NodeHandle constructed will fully initialize this node, and the last
    * NodeHandle destructed will close down the node.
    */
-  ros::NodeHandle n;
+  /*ros::NodeHandle n;
 
 /**
    * The advertise() function is how you tell ROS that you want to
@@ -76,7 +81,7 @@ int main(int argc, char **argv)
    * than we can send them, the number here specifies how many messages to
    * buffer up before throwing some away.
    */
-  ros::Publisher command_pub = n.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
+ /* ros::Publisher command_pub = n.advertise<geometry_msgs::Twist>("/cmd_vel", 10);
   ros::Rate loop_rate(10);
 
   while (ros::ok())
@@ -92,7 +97,7 @@ int main(int argc, char **argv)
     * We care about angular.z, positive- left negative-right
 	*/
 
-    if(MOVE_FORWARD)
+    /*if(MOVE_FORWARD)
     {
       velocityMessage.linear.x = 1;
       velocityMessage.angular.z = 0;
@@ -126,11 +131,79 @@ int main(int argc, char **argv)
      * in the constructor above.
      */
 
-    command_pub.publish(velocityMessage);
+   /* command_pub.publish(velocityMessage);
     ros::spinOnce();
 
     loop_rate.sleep();
   }
   return 0;
 }
+*/
 
+#include "rclcpp/rclcpp.hpp"
+#include "std_msgs/msg/String.hpp"
+#include "geometry_msgs/msg/Twist.hpp"
+#include <iostream>
+
+
+#define MOVE_FORWARD      keyboardInput == 'w'
+#define MOVE_BACKWARD     keyboardInput == 's'
+#define TURN_LEFT         keyboardInput == 'a'
+#define TURN_RIGHT        keyboardInput == 'd'
+
+int main(int argc, char **argv)
+{
+  rclcpp::init(argc, argv);
+
+  char keyboardInput;
+
+  auto node = rclcpp::Node::make_shared("keyboard_control");
+
+
+  auto command_pub = node->create_publisher<geometry_msgs::msg::Twist>("/cmd_vel", 10);
+  rclcpp::Rate loop_rate(10);
+
+  while (rclcpp::ok())
+  {
+    std::cout << "Please enter the direction you want to move:\nForward- W\nBackward- S\nLeft - A\nRight- D\nStop- Any key\n";
+    std::cin >> keyboardInput;
+
+    geometry_msgs::msg::Twist velocityMessage;
+
+
+    if (MOVE_FORWARD)
+    {
+      velocityMessage.linear.x = 1;
+      velocityMessage.angular.z = 0;
+    }
+    else if (MOVE_BACKWARD)
+    {
+      velocityMessage.linear.x = -0.2;
+      velocityMessage.angular.z = 0;
+    }
+    else if (TURN_LEFT)
+    {
+      velocityMessage.linear.x = 0;
+      velocityMessage.angular.z = 0.2;
+    }
+    else if (TURN_RIGHT)
+    {
+      velocityMessage.linear.x = 0;
+      velocityMessage.angular.z = -0.2;
+    }
+    else
+    {
+      velocityMessage.linear.x = 0;
+      velocityMessage.angular.z = 0;
+    }
+
+
+    command_pub->publish(velocityMessage);
+    rclcpp::spin_some(node);
+
+    loop_rate.sleep();
+  }
+
+  rclcpp::shutdown();
+  return 0;
+}

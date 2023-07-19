@@ -1,4 +1,6 @@
-#include <iostream>
+//DONE 
+
+/*#include <iostream>
 #include <math.h>
 
 #include <ros/ros.h>
@@ -239,4 +241,264 @@ return 0;
 //  std::cout << std::endl << "Enter the turning angle" << std::endl;
 //  std::cin >> turningAngle;
 //  driver.turnOdom(true,turningAngle);
+}
+*/
+
+//ROS 2 STARTS BELOW
+
+#include <iostream>
+#include <cmath>
+#include <iomanip>
+
+#include "rclcpp/rclcpp.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+#include "tf2_ros/transform_listener.h"
+#include "tf2_geometry_msgs/tf2_geometry_msgs.h"
+#include "std_msgs/msg/float64.hpp"
+
+// Making this global is not required. There must be a safer way to do it.
+// But for testing purposes I am initializing it here. To be removed later
+double Distance = 0;
+void xyDistanceCallBack(const std_msgs::msg::Float64::SharedPtr msg)
+{
+  Distance = msg->data;
+}
+double Heading = 0;
+void xyHeadingCallBack(const std_msgs::msg::Float64::SharedPtr msg)
+{
+  Heading = msg->data;
+}
+
+class RobotDriver : public rclcpp::Node
+{
+public:
+  RobotDriver(const rclcpp::NodeOptions &options)
+    : Node("robot_driver", options)
+  {
+    // Set up the publisher for the cmd_vel topic
+    cmd_vel_pub_ = create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 1);
+
+    // Set up the subscriber for the gpsdistance and gpsheading topics
+    subscriber_for_gpsdistance = create_subscription<std_msgs::msg::Float64>(
+      "/gpsdistance", 1, std::bind(&RobotDriver::xyDistanceCallBack, this, std::placeholders::_1));
+
+    subscriber_for_gpsheading = create_subscription<std_msgs::msg::Float64>(
+      "/gpsheading", 1, std::bind(&RobotDriver::xyHeadingCallBack, this, std::placeholders::_1));
+
+    // Wait for the first message to be received
+    while (rclcpp::ok() && Distance == 0) {
+      rclcpp::spin_some(shared_from_this());
+    }
+  }
+
+  bool driveForwardOdom(double distance, double speed)
+  {
+    // Wait for the listener to get the first message
+    tf_buffer_.waitForTransform("base_link", "odom", tf2::TimePoint(), tf2::Duration(1.0));
+
+    // Record the starting transform from the odometry to the base frame
+    geometry_msgs::msg::TransformStamped start_transform;
+    geometry_msgs::msg::TransformStamped current_transform;
+
+    try {
+      start_transform = tf_buffer_.lookupTransform("base_link", "odom", tf2::TimePoint());
+    } catch (tf2::TransformException &ex) {
+      RCLCPP_ERROR(this->get_logger(), "%s", ex.what());
+      return false;
+    }
+
+    // We will be sending commands of type "Twist"
+    geometry_msgs::msg::Twist base_cmd;
+    // The command will be to go forward at the specified speed
+    base_cmd.linear.y = base_cmd.angular.z = 0.0;
+    base_cmd.linear.x = speed;
+
+    rclcpp::Rate rate(10.0);
+    bool done = false;
+    while (rclcpp::ok() && !done) {
+      // Send the drive command
+      cmd_vel_pub_->publish(base_cmd);
+      rate.sleep();
+
+      // Get the current transform
+      try {
+        current_transform = tf_buffer_.lookupTransform("base_link", "odom", tf2::TimePoint());
+      } catch (tf2::TransformException &ex) {
+        RCLCPP_ERROR(this->get_logger(), "%s", ex.what());
+        return false;
+      }
+
+      // See how far we've traveled
+      tf2::Stamped<tf2::Transform> relative_transform;
+      tf2::fromMsg(start_transform, relative_transform);
+      tf2::Stamped<tf2::Transform> current_transform_tf;
+      tf2::fromMsg(current_transform, current_transform_tf);
+      relative_transform = relative_transform.inverseTimes(current_transform_tf);
+      double dist_moved = relative_transform.getOrigin().length();
+
+      if (dist_moved > distance) {
+        done = true;
+      }
+    }
+
+    if (done) {
+      base_cmd.linear.y = base_cmd.angular.z = 0.0;
+      base_cmd.linear.x = 0.0;
+      // Send the stop command
+      cmd_vel_pub_->publish(base_cmd);
+      rate.sleep();
+      return true;
+    }
+
+    return false;
+  }
+
+  bool turnOdom(bool clockwise, double radians)
+  {
+    while (radians < 0) {
+      radians += 2 * M_PI;
+    }
+    while (radians > 2 * M_PI) {
+      radians -= 2 * M_PI;
+    }
+
+    // Wait for the listener to get the first message
+    tf_buffer_.waitForTransform("base_link", "odom", tf2::TimePoint(), tf2::Duration(1.0));
+
+    // Record the starting transform from the odometry to the base frame
+    geometry_msgs::msg::TransformStamped start_transform;
+    geometry_msgs::msg::TransformStamped current_transform;
+
+    try {
+      start_transform = tf_buffer_.lookupTransform("base_link", "odom", tf2::TimePoint());
+    } catch (tf2::TransformException &ex) {
+      RCLCPP_ERROR(this->get_logger(), "%s", ex.what());
+      return false;
+    }
+
+    // We will be sending commands of type "Twist"
+    geometry_msgs::msg::Twist base_cmd;
+    // The command will be to turn at the specified speed
+    base_cmd.linear.x = base_cmd.linear.y = 0.0;
+    base_cmd.angular.z = 0.2;
+    if (clockwise) {
+      base_cmd.angular.z = -base_cmd.angular.z;
+    }
+
+    // The axis we want to be rotating by
+    tf2::Vector3 desired_turn_axis(0, 0, 1);
+    if (!clockwise) {
+      desired_turn_axis = -desired_turn_axis;
+    }
+
+    rclcpp::Rate rate(10.0);
+    bool done = false;
+    while (rclcpp::ok() && !done) {
+      // Send the drive command
+      cmd_vel_pub_->publish(base_cmd);
+      rate.sleep();
+
+      // Get the current transform
+      try {
+        current_transform = tf_buffer_.lookupTransform("base_link", "odom", tf2::TimePoint());
+      } catch (tf2::TransformException &ex) {
+        RCLCPP_ERROR(this->get_logger(), "%s", ex.what());
+        return false;
+      }
+
+      tf2::Stamped<tf2::Transform> relative_transform;
+      tf2::fromMsg(start_transform, relative_transform);
+      tf2::Stamped<tf2::Transform> current_transform_tf;
+      tf2::fromMsg(current_transform, current_transform_tf);
+      relative_transform = relative_transform.inverseTimes(current_transform_tf);
+      tf2::Vector3 actual_turn_axis = relative_transform.getRotation().getAxis();
+      double angle_turned = relative_transform.getRotation().getAngle();
+      if (std::fabs(angle_turned) < 1.0e-2) {
+        continue;
+      }
+
+      if (actual_turn_axis.dot(desired_turn_axis) < 0) {
+        angle_turned = 2 * M_PI - angle_turned;
+      }
+
+      if (angle_turned > radians) {
+        done = true;
+      }
+    }
+
+    if (done) {
+      base_cmd.linear.y = base_cmd.angular.z = 0.0;
+      base_cmd.linear.x = 0.0;
+      // Send the stop command
+      cmd_vel_pub_->publish(base_cmd);
+      rate.sleep();
+      return true;
+    }
+
+    return false;
+  }
+
+  bool driveForwardSafely(double distance)
+  {
+    if (distance > 2) {
+      double d = distance - 2;
+      driveForwardOdom(d, 1);
+      driveForwardOdom(0.5, 0.8);
+      driveForwardOdom(0.5, 0.6);
+      driveForwardOdom(0.5, 0.4);
+      driveForwardOdom(0.5, 0.2);
+    } else {
+      driveForwardOdom(distance, 0.2);
+    }
+
+    return true;
+  }
+
+private:
+  rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr subscriber_for_gpsdistance;
+  rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr subscriber_for_gpsheading;
+  tf2_ros::Buffer tf_buffer_;
+  tf2_ros::TransformListener tf_listener_;
+};
+
+int main(int argc, char** argv)
+{
+  // Initialize the ROS node
+  rclcpp::init(argc, argv);
+  auto node = std::make_shared<RobotDriver>(rclcpp::NodeOptions());
+
+  // Wait for the first message to be received
+  while (rclcpp::ok() && Distance == 0) {
+    rclcpp::spin_some(node);
+  }
+
+  float turningAngle = 0.0;
+  do {
+    sleep(2);
+    rclcpp::spin_some(node);
+
+    if ((Heading < -0.05) || (Heading > 0.05)) {
+      if (Heading < 0) {
+        turningAngle = -1 * Heading * (0.05);
+        node->turnOdom(false, turningAngle);
+        std::cout << std::setprecision(12) << "L: " << turningAngle * 180 / M_PI
+                  << " : " << Heading * -1 * 180 / M_PI << std::endl;
+      } else {
+        turningAngle = Heading * (0.05);
+        node->turnOdom(true, turningAngle);
+        std::cout << std::setprecision(12) << "R: " << turningAngle * 180 / M_PI
+                  << " : " << Heading * 180 / M_PI << std::endl;
+      }
+    }
+
+    rclcpp::spin_some(node);
+    std::cout << std::setprecision(12) << "Dist: " << Distance << std::endl;
+    node->driveForwardSafely(4);
+  } while (Distance > 6);
+
+  std::cout << "Destination has been reached" << std::endl;
+
+  rclcpp::shutdown();
+  return 0;
 }
