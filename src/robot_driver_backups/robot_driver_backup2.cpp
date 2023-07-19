@@ -1,3 +1,5 @@
+//ROS 2 COMMENTED OUT BELOW
+
 #include <iostream>
 #include <math.h>
 
@@ -256,3 +258,250 @@ return 0;
 //  std::cin >> turningAngle;
 //  driver.turnOdom(true,turningAngle);
 }
+
+
+//ROS 2 STARTS BELOW 
+/*#include <iostream>
+#include <cmath>
+
+#include "rclcpp/rclcpp.hpp"
+#include "geometry_msgs/msg/twist.hpp"
+#include "tf2_ros/transform_listener.h"
+#include "std_msgs/msg/float64.hpp"
+
+// Making this global is not required. There must be a safer way to do it.
+// But for testing purposes I am initializing it here. To be removed later
+double Distance = 0;
+void xyDistanceCallBack(const std_msgs::msg::Float64::SharedPtr msg)
+{
+    Distance = msg->data;
+}
+double Heading = 0;
+void xyHeadingCallBack(const std_msgs::msg::Float64::SharedPtr msg)
+{
+    Heading = msg->data;
+}
+
+class RobotDriver : public rclcpp::Node
+{
+public:
+    RobotDriver()
+        : Node("robot_driver")
+    {
+        cmd_vel_pub_ = this->create_publisher<geometry_msgs::msg::Twist>("cmd_vel", 1);
+        subscriber_for_gpsdistance = this->create_subscription<std_msgs::msg::Float64>(
+            "/gpsdistance", 1, std::bind(&RobotDriver::xyDistanceCallBack, this, std::placeholders::_1));
+        subscriber_for_gpsheading = this->create_subscription<std_msgs::msg::Float64>(
+            "/gpsheading", 1, std::bind(&RobotDriver::xyHeadingCallBack, this, std::placeholders::_1));
+
+        tf_listener_ = std::make_shared<tf2_ros::TransformListener>(tf_buffer_);
+    }
+
+    bool driveForwardOdom(double distance, double speed)
+    {
+        tf_buffer_.canTransform("base_link", "odom", tf2::TimePoint(), tf2::Duration(1.0));
+
+        geometry_msgs::msg::TransformStamped start_transform;
+        geometry_msgs::msg::TransformStamped current_transform;
+
+        try
+        {
+            start_transform = tf_buffer_.lookupTransform("base_link", "odom", tf2::TimePoint());
+        }
+        catch (tf2::TransformException &ex)
+        {
+            RCLCPP_ERROR(this->get_logger(), "%s", ex.what());
+            return false;
+        }
+
+        geometry_msgs::msg::Twist base_cmd;
+        base_cmd.linear.y = base_cmd.angular.z = 0;
+        base_cmd.linear.x = speed;
+
+        rclcpp::Rate rate(10.0);
+        bool done = false;
+        while (!done && rclcpp::ok())
+        {
+            cmd_vel_pub_->publish(base_cmd);
+            rate.sleep();
+
+            try
+            {
+                current_transform = tf_buffer_.lookupTransform("base_link", "odom", tf2::TimePoint());
+            }
+            catch (tf2::TransformException &ex)
+            {
+                RCLCPP_ERROR(this->get_logger(), "%s", ex.what());
+                return false;
+            }
+
+            tf2::Transform relative_transform;
+            tf2::fromMsg(start_transform.transform, relative_transform);
+            tf2::Transform current_relative_transform;
+            tf2::fromMsg(current_transform.transform, current_relative_transform);
+            tf2::Transform dist_moved_transform = relative_transform.inverse() * current_relative_transform;
+            double dist_moved = dist_moved_transform.getOrigin().length();
+
+            if (dist_moved > distance)
+            {
+                done = true;
+            }
+        }
+
+        if (done)
+        {
+            base_cmd.linear.y = base_cmd.angular.z = 0;
+            base_cmd.linear.x = 0.0;
+            cmd_vel_pub_->publish(base_cmd);
+            rate.sleep();
+        }
+
+        return done;
+    }
+
+    bool turnOdom(bool clockwise, double radians)
+    {
+        while (radians < 0)
+            radians += 2 * M_PI;
+        while (radians > 2 * M_PI)
+            radians -= 2 * M_PI;
+
+        tf_buffer_.canTransform("base_link", "odom", tf2::TimePoint(), tf2::Duration(1.0));
+
+        geometry_msgs::msg::TransformStamped start_transform;
+        geometry_msgs::msg::TransformStamped current_transform;
+
+        try
+        {
+            start_transform = tf_buffer_.lookupTransform("base_link", "odom", tf2::TimePoint());
+        }
+        catch (tf2::TransformException &ex)
+        {
+            RCLCPP_ERROR(this->get_logger(), "%s", ex.what());
+            return false;
+        }
+
+        geometry_msgs::msg::Twist base_cmd;
+        base_cmd.linear.x = base_cmd.linear.y = 0.0;
+        base_cmd.angular.z = 0.2;
+        if (clockwise)
+        {
+            base_cmd.angular.z = -base_cmd.angular.z;
+        }
+
+        tf2::Quaternion desired_turn_quaternion;
+        desired_turn_quaternion.setRPY(0, 0, radians);
+        if (!clockwise)
+        {
+            desired_turn_quaternion.setRPY(0, 0, -radians);
+        }
+
+        rclcpp::Rate rate(10.0);
+        bool done = false;
+        while (!done && rclcpp::ok())
+        {
+            cmd_vel_pub_->publish(base_cmd);
+            rate.sleep();
+
+            try
+            {
+                current_transform = tf_buffer_.lookupTransform("base_link", "odom", tf2::TimePoint());
+            }
+            catch (tf2::TransformException &ex)
+            {
+                RCLCPP_ERROR(this->get_logger(), "%s", ex.what());
+                return false;
+            }
+
+            tf2::Transform relative_transform;
+            tf2::fromMsg(start_transform.transform, relative_transform);
+            tf2::Transform current_relative_transform;
+            tf2::fromMsg(current_transform.transform, current_relative_transform);
+            tf2::Transform dist_moved_transform = relative_transform.inverse() * current_relative_transform;
+            tf2::Quaternion current_turn_quaternion = dist_moved_transform.getRotation();
+
+            tf2::Quaternion desired_turn_quaternion_inverse = desired_turn_quaternion.inverse();
+            tf2::Quaternion error_quaternion = desired_turn_quaternion_inverse * current_turn_quaternion;
+            double angle_turned = 2.0 * std::atan2(error_quaternion.getAxis().length(), error_quaternion.getW());
+
+            if (angle_turned > radians)
+            {
+                done = true;
+            }
+        }
+
+        if (done)
+        {
+            base_cmd.linear.y = base_cmd.angular.z = 0;
+            base_cmd.linear.x = 0.0;
+            cmd_vel_pub_->publish(base_cmd);
+            rate.sleep();
+        }
+
+        return done;
+    }
+
+    bool driveForwardSafely(double distance)
+    {
+        if (distance > 2)
+        {
+            double d = distance - 2;
+            driveForwardOdom(d, 1);
+            driveForwardOdom(0.5, 0.8);
+            driveForwardOdom(0.5, 0.6);
+            driveForwardOdom(0.5, 0.4);
+            driveForwardOdom(0.5, 0.2);
+        }
+        else
+        {
+            driveForwardOdom(distance, 0.2);
+        }
+
+        return true;
+    }
+
+    bool turn(double angle)
+    {
+        double turningAngle = 0.0;
+
+        if ((angle < -0.05) || (angle > 0.05))
+        {
+            if (Heading < 0)
+            {
+                turningAngle = -1 * angle;
+                turnOdom(false, turningAngle);
+                RCLCPP_INFO(this->get_logger(), "L: %.2f : %.2f", turningAngle * 180 / M_PI, Heading * -1 * 180 / M_PI);
+            }
+            else
+            {
+                turningAngle = angle;
+                turnOdom(true, turningAngle);
+                RCLCPP_INFO(this->get_logger(), "R: %.2f : %.2f", turningAngle * 180 / M_PI, Heading * 180 / M_PI);
+            }
+        }
+        else
+        {
+            RCLCPP_INFO(this->get_logger(), "No Turn");
+        }
+
+        return true;
+    }
+
+private:
+    rclcpp::Publisher<geometry_msgs::msg::Twist>::SharedPtr cmd_vel_pub_;
+    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr subscriber_for_gpsdistance;
+    rclcpp::Subscription<std_msgs::msg::Float64>::SharedPtr subscriber_for_gpsheading;
+
+    tf2_ros::Buffer tf_buffer_;
+    std::shared_ptr<tf2_ros::TransformListener> tf_listener_;
+};
+
+int main(int argc, char **argv)
+{
+    rclcpp::init(argc, argv);
+    rclcpp::spin(std::make_shared<RobotDriver>());
+    rclcpp::shutdown();
+
+    return 0;
+}
+*/

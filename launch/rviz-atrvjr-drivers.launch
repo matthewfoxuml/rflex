@@ -1,15 +1,31 @@
+# UPDATED 
+
 <!-- Core robot nodes, replaces player's driver stack -->
 
 <launch>
 
 <!-- Rflex -->
-  <node pkg="rflex" type="atrvjr" name="atrvjr" output="screen">
+
+<!-- <node pkg="rflex" type="atrvjr" name="atrvjr" output="screen">
+    <param name="port" value="/dev/ttyUSB0"/>
+    <remap from="/atrvjr/odom" to="/odom"/>
+    <remap from="/atrvjr/cmd_vel" to="/cmd_vel"/>
+</node>
+-->
+
+<!--
+<param name="robot_description" command="cat $(find rflex)/src/atrvjr_urdf.xml" />
+-->
+
+
+ <node pkg="rflex" type="atrvjr" name="atrvjr" output="screen">
     <param name="port" value="/dev/ttyUSB0"/>
     <remap from="/atrvjr/odom" to="/odom"/>
     <remap from="/atrvjr/cmd_vel" to="/cmd_vel"/>
   </node>
 
-<param name="robot_description" command="cat $(find rflex)/src/atrvjr_urdf.xml" />
+  <arg name="robot_description" command="cat $(find rflex)/src/atrvjr_urdf.xml" />
+
 
 <!-- Pan-tilt unit -->
   <!--<node pkg="ptu46" type="ptu46" name="ptu46" output="screen">-->
